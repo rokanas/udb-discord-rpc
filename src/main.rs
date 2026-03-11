@@ -61,3 +61,73 @@ fn main() {
 fn launch_udb(extra_args: &[String]) -> std::io::Result<Child> {
     Command::new(UDB_EXE_ORIGINAL).args(extra_args).spawn()
 }
+
+// -- discord rpc loop --
+
+fn run_rpc_loop(running: Arc<AtomicBool>) {
+    // give udb time to open window before polling
+    std::thread::sleep(Duration::from_secs(2));
+
+    let mut client = match DiscordIpcClient::new(DISCORD_APP_ID) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[UDB-RPC] Failed to create Discord client: {}", e);
+            return;
+        }
+    };
+
+    if let Err(e) = client.connect() {
+        eprintln!("[UDB-RPC] Could not connect to Discord (is it running?): {}", e);
+        return;
+    }
+
+    println!("[UDB-RPC] Connected to Discord.");
+
+    let start_timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let mut last_state = String::new();
+    let mut sys = System::new_with_specifics(
+        RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+    );
+
+    while running.load(Ordering::Relaxed) {
+        sys.refresh_processes_specifics(ProcessRefreshKind::everything());
+
+        let title = get_udb_window_title(&sys);
+        let (details, state) = parse_title(&title);
+
+        // only update discord if something changed (avoids rate limiting)
+        let new_state = format!("{}|{}", details, state);
+        if new_state != last_state {
+            last_state = new_state;
+
+            let activity = activity::Activity::new()
+                .details(&details)
+                .state(&state)
+                .timestamps(activity::Timestamps::new().start(start_timestamp))
+                .assets(
+                    activity::Assets::new()
+                        .large_image("udb_logo")
+                        .large_text("Ultimate Doom Builder")
+                        .small_image("doom_icon")
+                        .small_text("Mapping"),
+                );
+
+            if let Err(e) = client.set_activity(activity) {
+                eprintln!("[UDB-RPC] Failed to set activity: {}", e);
+                let _ = client.reconnect();
+            } else {
+                println!("[UDB-RPC] Updated presence → {} | {}", details, state);
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(POLL_RATE_MS));
+    }
+
+    let _ = client.clear_activity();
+    let _ = client.close();
+    println!("[UDB-RPC] Discord RPC disconnected.");
+}
