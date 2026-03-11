@@ -1,3 +1,11 @@
+/* 
+produces a proxy launcher for udb (to be run from the same directory as original udb exe) that:
+  1 - launches original udb executable
+  2 - monitors window title for current map/file names
+  3 - updates discord rpc
+  4 - exits cleanly when udb closes 
+*/
+
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -202,10 +210,11 @@ unsafe fn find_udb_window_title() -> String {
 
 // -- parse title --
 
-/// title format (as of udb v3.0.0.4305)
-///     "doomwad.wad (MAP01: Mapname) - Ultimate Doom Builder"  → map + file open
-///     "doomwad.wad - Ultimate Doom Builder"                   → file open, no map
-///     "Ultimate Doom Builder"                                 → startup / no file
+/* title format (as of udb v3.0.0.4305)
+    "doomwad.wad (MAP01: Mapname) - Ultimate Doom Builder"  -> map + file open
+    "doomwad.wad - Ultimate Doom Builder"                   -> file open, no map
+    "Ultimate Doom Builder"                                 -> startup / no file
+*/
 fn parse_title(title: &str) -> (String, String) {
     if title.is_empty() || !title.contains("Ultimate Doom Builder") {
         return (
