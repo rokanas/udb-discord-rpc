@@ -131,3 +131,71 @@ fn run_rpc_loop(running: Arc<AtomicBool>) {
     let _ = client.close();
     println!("[UDB-RPC] Discord RPC disconnected.");
 }
+
+// -- detect window titles --
+
+/// on windows: enumerate all top level windows to find udb window title
+/// on other platforms: fall back to process name detection
+fn get_udb_window_title(_sys: &System) -> String {
+    #[cfg(windows)]
+    {
+        return unsafe { find_udb_window_title() };
+    }
+
+    #[cfg(not(windows))]
+    {
+        // non-windows fallback: if udb process running, return generic string
+        for (_pid, process) in _sys.processes() {
+            let name = process.name().to_lowercase();
+            if name.contains("ultimatedoombuilder") {
+                return "Ultimate Doom Builder".to_string();
+            }
+        }
+        String::new()
+    }
+}
+
+#[cfg(windows)]
+unsafe fn find_udb_window_title() -> String {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::sync::Mutex;
+    use winapi::shared::minwindef::{BOOL, LPARAM};
+    use winapi::shared::windef::HWND;
+    use winapi::um::winuser::{EnumWindows, GetWindowTextW};
+
+    // use thread-local to collect result from the callback
+    static RESULT: std::sync::OnceLock<Mutex<Option<String>>> = std::sync::OnceLock::new();
+    let mutex = RESULT.get_or_init(|| Mutex::new(None));
+    {
+        let mut guard = mutex.lock().unwrap();
+        *guard = None;
+    }
+
+    unsafe extern "system" fn enum_callback(hwnd: HWND, _lparam: LPARAM) -> BOOL {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStringExt;
+        use winapi::um::winuser::GetWindowTextW;
+
+        let mut buf = vec![0u16; 512];
+        let len = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+        if len > 0 {
+            buf.truncate(len as usize);
+            let title = OsString::from_wide(&buf).to_string_lossy().into_owned();
+            if title.contains("Ultimate Doom Builder") {
+                if let Some(mutex) = RESULT.get() {
+                    if let Ok(mut guard) = mutex.lock() {
+                        *guard = Some(title);
+                    }
+                }
+                return 0; // stop enumeration
+            }
+        }
+        1 // continue
+    }
+
+    EnumWindows(Some(enum_callback), 0);
+
+    let guard = mutex.lock().unwrap();
+    guard.clone().unwrap_or_default()
+}
