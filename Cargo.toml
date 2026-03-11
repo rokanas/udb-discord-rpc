@@ -1,0 +1,21 @@
+[package]
+name = "udb-discord-rpc"
+version = "0.1.0"
+edition = "2024"
+description = "Discord RPC proxy launcher for Ultimate Doom Builder"
+
+[[bin]]
+name = "UltimateDoomBuilder"
+path = "src/main.rs"
+
+[dependencies]
+discord-rich-presence = "0.2"
+sysinfo = "0.30"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "minwindef", "windef"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
