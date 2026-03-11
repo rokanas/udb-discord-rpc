@@ -199,3 +199,68 @@ unsafe fn find_udb_window_title() -> String {
     let guard = mutex.lock().unwrap();
     guard.clone().unwrap_or_default()
 }
+
+// -- parse title --
+
+/// title format (as of udb v3.0.0.4305)
+///     "doomwad.wad (MAP01: Mapname) - Ultimate Doom Builder"  → map + file open
+///     "doomwad.wad - Ultimate Doom Builder"                   → file open, no map
+///     "Ultimate Doom Builder"                                 → startup / no file
+fn parse_title(title: &str) -> (String, String) {
+    if title.is_empty() || !title.contains("Ultimate Doom Builder") {
+        return (
+            "Ultimate Doom Builder".to_string(),
+            "Idle".to_string(),
+        );
+    }
+
+    // strip trailing " - Ultimate Doom Builder" suffix
+    let stripped = if let Some(pos) = title.rfind(" - Ultimate Doom Builder") {
+        title[..pos].trim()
+    } else {
+        // bare "Ultimate Doom Builder"
+        return (
+            "Ultimate Doom Builder".to_string(),
+            "Starting up...".to_string(),
+        );
+    };
+
+    if stripped.is_empty() {
+        return (
+            "Ultimate Doom Builder".to_string(),
+            "Starting up...".to_string(),
+        );
+    }
+
+    // split on first " - " to separate map name from filename
+    let parts: Vec<&str> = stripped.splitn(2, " - ").collect();
+
+    match parts.as_slice() {
+        [map, file] => {
+            let map_name = map.trim();
+            let unsaved = file.trim().ends_with('*');
+            let file_name = file.trim().trim_end_matches('*').trim();
+            let details = format!("Editing {}", map_name);
+            let state = if unsaved {
+                format!("{} (unsaved changes)", file_name)
+            } else {
+                format!("in {}", file_name)
+            };
+            (details, state)
+        }
+        [file] => {
+            let unsaved = file.trim().ends_with('*');
+            let file_name = file.trim().trim_end_matches('*').trim();
+            let state = if unsaved {
+                format!("{} (unsaved changes)", file_name)
+            } else {
+                format!("Editing {}", file_name)
+            };
+            ("Ultimate Doom Builder".to_string(), state)
+        }
+        _ => (
+            "Ultimate Doom Builder".to_string(),
+            stripped.to_string(),
+        ),
+    }
+}
