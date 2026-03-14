@@ -44,13 +44,16 @@ fn main() {
         }
     };
 
+    // get the pid of the udb process we just launched
+    let udb_pid = udb_process.id();
+
     // signal flag — set to false when udb exits so rpc thread can stop
     let running = Arc::new(AtomicBool::new(true));
     let running_rpc = Arc::clone(&running);
 
     // spawn discord rpc updater on background thread
     let rpc_thread = std::thread::spawn(move || {
-        run_rpc_loop(running_rpc);
+        run_rpc_loop(running_rpc, udb_pid);
     });
 
     // wait for udb to exit
@@ -72,10 +75,11 @@ fn launch_udb(extra_args: &[String]) -> std::io::Result<Child> {
 
 // -- discord rpc loop --
 
-fn run_rpc_loop(running: Arc<AtomicBool>) {
-    // give udb time to open window before polling
+// -- discord rpc loop --
+ 
+fn run_rpc_loop(running: Arc<AtomicBool>, udb_pid: u32) {
     std::thread::sleep(Duration::from_secs(2));
-
+ 
     let mut client = match DiscordIpcClient::new(DISCORD_APP_ID) {
         Ok(c) => c,
         Err(e) => {
@@ -83,36 +87,35 @@ fn run_rpc_loop(running: Arc<AtomicBool>) {
             return;
         }
     };
-
+ 
     if let Err(e) = client.connect() {
         eprintln!("[UDB-RPC] Could not connect to Discord (is it running?): {}", e);
         return;
     }
-
+ 
     println!("[UDB-RPC] Connected to Discord.");
-
+ 
     let start_timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
-
+ 
     let mut last_state = String::new();
     let mut sys = System::new_with_specifics(
         RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
     );
-
+ 
     while running.load(Ordering::Relaxed) {
         sys.refresh_processes_specifics(ProcessRefreshKind::everything());
-
-        let title = get_udb_window_title(&sys);
+ 
+        let title = get_udb_window_title(udb_pid);
         println!("[UDB-RPC] Raw title: '{}'", title);
         let (details, state) = parse_title(&title);
-
-        // only update discord if something changed (avoids rate limiting)
+ 
         let new_state = format!("{}|{}", details, state);
         if new_state != last_state {
             last_state = new_state;
-
+ 
             let activity = activity::Activity::new()
                 .details(&details)
                 .state(&state)
@@ -124,7 +127,7 @@ fn run_rpc_loop(running: Arc<AtomicBool>) {
                         .small_image("doom_icon")
                         .small_text("Mapping"),
                 );
-
+ 
             if let Err(e) = client.set_activity(activity) {
                 eprintln!("[UDB-RPC] Failed to set activity: {}", e);
                 let _ = client.reconnect();
@@ -132,79 +135,81 @@ fn run_rpc_loop(running: Arc<AtomicBool>) {
                 println!("[UDB-RPC] Updated presence → {} | {}", details, state);
             }
         }
-
+ 
         std::thread::sleep(Duration::from_millis(POLL_RATE_MS));
     }
-
+ 
     let _ = client.clear_activity();
     let _ = client.close();
     println!("[UDB-RPC] Discord RPC disconnected.");
 }
 
-// -- detect window titles --
-
-/// on windows: enumerate all top level windows to find udb window title
-/// on other platforms: fall back to process name detection
-fn get_udb_window_title(_sys: &System) -> String {
+// -- detect window title by pid --
+ 
+fn get_udb_window_title(udb_pid: u32) -> String {
     #[cfg(windows)]
     {
-        return unsafe { find_udb_window_title() };
+        return unsafe { find_window_title_by_pid(udb_pid) };
     }
-
+ 
     #[cfg(not(windows))]
     {
-        // non-windows fallback: if udb process running, return generic string
-        for (_pid, process) in _sys.processes() {
-            let name = process.name().to_lowercase();
-            if name.contains("ultimatedoombuilder") {
-                return "Ultimate Doom Builder".to_string();
-            }
-        }
+        let _ = udb_pid;
         String::new()
     }
 }
 
 #[cfg(windows)]
-unsafe fn find_udb_window_title() -> String {
+unsafe fn find_window_title_by_pid(target_pid: u32) -> String {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use std::sync::Mutex;
-    use winapi::shared::minwindef::{BOOL, LPARAM};
+    use winapi::shared::minwindef::{BOOL, DWORD, LPARAM};
     use winapi::shared::windef::HWND;
-    use winapi::um::winuser::{EnumWindows, GetWindowTextW};
-
-    // use thread-local to collect result from the callback
+    use winapi::um::winuser::{EnumWindows, GetWindowTextW, GetWindowThreadProcessId};
+ 
     static RESULT: std::sync::OnceLock<Mutex<Option<String>>> = std::sync::OnceLock::new();
     let mutex = RESULT.get_or_init(|| Mutex::new(None));
     {
         let mut guard = mutex.lock().unwrap();
         *guard = None;
     }
-
-    unsafe extern "system" fn enum_callback(hwnd: HWND, _lparam: LPARAM) -> BOOL {
+ 
+    unsafe extern "system" fn enum_callback(hwnd: HWND, target_pid: LPARAM) -> BOOL {
         use std::ffi::OsString;
         use std::os::windows::ffi::OsStringExt;
-        use winapi::um::winuser::GetWindowTextW;
-
+        use winapi::shared::minwindef::DWORD;
+        use winapi::um::winuser::{GetWindowTextW, GetWindowThreadProcessId};
+ 
+        // check this window belongs to our target pid
+        let mut window_pid: DWORD = 0;
+        GetWindowThreadProcessId(hwnd, &mut window_pid);
+        if window_pid != target_pid as DWORD {
+            return 1; // wrong process, skip
+        }
+ 
+        // read the title
         let mut buf = vec![0u16; 512];
         let len = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
         if len > 0 {
             buf.truncate(len as usize);
             let title = OsString::from_wide(&buf).to_string_lossy().into_owned();
-            if title.contains("Ultimate Doom Builder") && !title.ends_with(".exe"){ // filter out additional console window (for testing)
+            if !title.is_empty() {
                 if let Some(mutex) = RESULT.get() {
                     if let Ok(mut guard) = mutex.lock() {
-                        *guard = Some(title);
+                        // prefer longer titles (more info = map + file vs bare title)
+                        if guard.as_ref().map_or(0, |t| t.len()) < title.len() {
+                            *guard = Some(title);
+                        }
                     }
                 }
-                return 0; // stop enumeration
             }
         }
-        1 // continue
+        1 // keep enumerating — udb may have multiple windows under same pid
     }
-
-    EnumWindows(Some(enum_callback), 0);
-
+ 
+    EnumWindows(Some(enum_callback), target_pid as LPARAM);
+ 
     let guard = mutex.lock().unwrap();
     guard.clone().unwrap_or_default()
 }
