@@ -105,6 +105,7 @@ fn run_rpc_loop(running: Arc<AtomicBool>) {
         sys.refresh_processes_specifics(ProcessRefreshKind::everything());
 
         let title = get_udb_window_title(&sys);
+        println!("[UDB-RPC] Raw title: '{}'", title);
         let (details, state) = parse_title(&title);
 
         // only update discord if something changed (avoids rate limiting)
