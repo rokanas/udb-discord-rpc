@@ -191,7 +191,7 @@ unsafe fn find_udb_window_title() -> String {
         if len > 0 {
             buf.truncate(len as usize);
             let title = OsString::from_wide(&buf).to_string_lossy().into_owned();
-            if title.contains("Ultimate Doom Builder") {
+            if title.contains("Ultimate Doom Builder") && !title.ends_with(".exe"){ // filter out additional console window (for testing)
                 if let Some(mutex) = RESULT.get() {
                     if let Ok(mut guard) = mutex.lock() {
                         *guard = Some(title);
