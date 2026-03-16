@@ -16,7 +16,7 @@ use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 // -- configuration --
 
 // discord app id
-const DISCORD_APP_ID: &str = "example";
+const DISCORD_APP_ID: &str = "placeholder";
 
 /// udb executable to launch
 const UDB_EXE_ORIGINAL: &str = "Builder.exe";
@@ -181,14 +181,14 @@ unsafe fn find_window_title_by_pid(target_pid: u32) -> String {
         use winapi::shared::minwindef::DWORD;
         use winapi::um::winuser::{GetWindowTextW, GetWindowThreadProcessId};
  
-        // check this window belongs to our target pid
+        // check window belongs to our target pid
         let mut window_pid: DWORD = 0;
         GetWindowThreadProcessId(hwnd, &mut window_pid);
         if window_pid != target_pid as DWORD {
             return 1; // wrong process, skip
         }
  
-        // read the title
+        // read title
         let mut buf = vec![0u16; 512];
         let len = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
         if len > 0 {
@@ -197,8 +197,11 @@ unsafe fn find_window_title_by_pid(target_pid: u32) -> String {
             if !title.is_empty() {
                 if let Some(mutex) = RESULT.get() {
                     if let Ok(mut guard) = mutex.lock() {
-                        // prefer longer titles (more info = map + file vs bare title)
-                        if guard.as_ref().map_or(0, |t| t.len()) < title.len() {
+                        let is_udb_title = title.contains(" - Ultimate Doom Builder");
+                        let current_is_udb = guard.as_ref().map_or(false, |t| t.contains(" - Ultimate Doom Builder"));
+                        // prefer titles containing UDB signature string;
+                        // only fall back to other titles if nothing yet found
+                        if is_udb_title || (!current_is_udb && guard.is_none()) {
                             *guard = Some(title);
                         }
                     }
