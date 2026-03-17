@@ -206,12 +206,23 @@ unsafe fn find_window_title_by_pid(target_pid: u32) -> String {
 /* title format (as of udb v3.0.0.4305)
     "doomwad.wad (MAP01: mapname) - Ultimate Doom Builder R4305 (64-bit)"  -> file + map open
     "Ultimate Doom Builder R4305 (64-bit)"                                 -> startup / no file
-
-   discord output:
-    details -> "Editing MAP01: mapname"
-    state   -> "doomwad.wad"
 */
 fn parse_title(title: &str) -> (String, String) {
+    // when creating new map
+    if title == "Map Options" {
+    return ("Creating new Map...".to_string(), String::new());
+    }
+
+    // when opening wad from file browser
+    if title == "Open Map" {
+    return ("Opening WAD...".to_string(), String::new());
+    }
+
+    // when selecting map from wad
+    if let Some(wad) = title.strip_prefix("Open Map from ") {
+        return ("Opening Map...".to_string(), wad.to_string());
+    }
+
     // if no title found or not a udb window (e.g. .NETBroadcastEventWIndow)
     if title.is_empty() || !title.contains("Ultimate Doom Builder") {
         return ("Idle".to_string(), String::new());
