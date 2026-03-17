@@ -1,9 +1,10 @@
-// use winres to embed icon in exe on windows
+// use windres to embed icon in exe on windows
 fn main() {
-    #[cfg(windows)]
-    {
-        let mut res = winres::WindowsResource::new();
-        res.set_icon("assets/icon.ico");
-        res.compile().unwrap();
-    }
+    // for cross-compilation from linux
+    println!("cargo:rustc-link-arg=assets/icon.res");
+    
+    std::process::Command::new("x86_64-w64-mingw32-windres")
+        .args(["assets/icon.rc", "-O", "coff", "-o", "assets/icon.res"])
+        .status()
+        .unwrap();
 }
