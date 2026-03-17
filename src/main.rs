@@ -33,7 +33,8 @@ use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 
 // -- configuration --
 
-const DISCORD_APP_ID: &str = "placeholder";
+// get discord app id from env variable at compile time
+const DISCORD_APP_ID: &str = env!("DISCORD_APP_ID"); // use env variable at compile time (from github pipeline or .env file)
 const UDB_EXE_ORIGINAL: &str = "Builder.exe";
 const POLL_RATE_MS: u64 = 2000;
 

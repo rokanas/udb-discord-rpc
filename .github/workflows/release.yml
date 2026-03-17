@@ -18,6 +18,8 @@ jobs:
 
       - name: Build
         run: cargo build --release
+        env:
+          DISCORD_APP_ID: ${{ secrets.DISCORD_APP_ID }}
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
