@@ -6,6 +6,24 @@ produces proxy launcher for udb (to be run from the same directory as original u
   4 - exits cleanly when udb closes 
 */
 
+// use built-in flag to hide console window in release build
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+// define macros for conditional debug logging
+macro_rules! log {
+    ($($arg:tt)*) => {
+        #[cfg(debug_assertions)]
+        println!($($arg)*);
+    };
+}
+
+macro_rules! log_err {
+    ($($arg:tt)*) => {
+        #[cfg(debug_assertions)]
+        eprintln!($($arg)*);
+    };
+}
+
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,13 +42,13 @@ const POLL_RATE_MS: u64 = 2000;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    println!("[UDB-RPC] Launching {}...", UDB_EXE_ORIGINAL);
+    log!("[UDB-RPC] Launching {}...", UDB_EXE_ORIGINAL);
 
     let mut udb_process = match launch_udb(&args) {
         Ok(child) => child,
         Err(e) => {
-            eprintln!("[UDB-RPC] Failed to launch UDB: {}", e);
-            eprintln!("[UDB-RPC] Make sure '{}' is in the same folder.", UDB_EXE_ORIGINAL);
+            log_err!("[UDB-RPC] Failed to launch UDB: {}", e);
+            log_err!("[UDB-RPC] Make sure '{}' is in the same folder.", UDB_EXE_ORIGINAL);
             std::thread::sleep(Duration::from_secs(5));
             return;
         }
@@ -46,12 +64,12 @@ fn main() {
     });
 
     let _ = udb_process.wait();
-    println!("[UDB-RPC] UDB closed. Cleaning up...");
+    log!("[UDB-RPC] UDB closed. Cleaning up...");
 
     running.store(false, Ordering::Relaxed);
     let _ = rpc_thread.join();
 
-    println!("[UDB-RPC] Done.");
+    log!("[UDB-RPC] Done.");
 }
 
 // -- launch udb --
@@ -68,17 +86,17 @@ fn run_rpc_loop(running: Arc<AtomicBool>, udb_pid: u32) {
     let mut client = match DiscordIpcClient::new(DISCORD_APP_ID) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[UDB-RPC] Failed to create Discord client: {}", e);
+            log_err!("[UDB-RPC] Failed to create Discord client: {}", e);
             return;
         }
     };
 
     if let Err(e) = client.connect() {
-        eprintln!("[UDB-RPC] Could not connect to Discord (is it running?): {}", e);
+        log_err!("[UDB-RPC] Could not connect to Discord (is it running?): {}", e);
         return;
     }
 
-    println!("[UDB-RPC] Connected to Discord.");
+    log!("[UDB-RPC] Connected to Discord.");
 
     let start_timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -94,7 +112,7 @@ fn run_rpc_loop(running: Arc<AtomicBool>, udb_pid: u32) {
         sys.refresh_processes_specifics(ProcessRefreshKind::everything());
 
         let title = get_udb_window_title(udb_pid);
-        println!("[UDB-RPC] Raw title: '{}'", title);
+        log!("[UDB-RPC] Raw title: '{}'", title);
         let (details, state) = parse_title(&title);
 
         let new_state = format!("{}|{}", details, state);
@@ -117,10 +135,10 @@ fn run_rpc_loop(running: Arc<AtomicBool>, udb_pid: u32) {
             }
 
             if let Err(e) = client.set_activity(act) {
-                eprintln!("[UDB-RPC] Failed to set activity: {}", e);
+                log_err!("[UDB-RPC] Failed to set activity: {}", e);
                 let _ = client.reconnect();
             } else {
-                println!("[UDB-RPC] Updated presence -> {} | {}", details, state);
+                log!("[UDB-RPC] Updated presence -> {} | {}", details, state);
             }
         }
 
@@ -129,7 +147,7 @@ fn run_rpc_loop(running: Arc<AtomicBool>, udb_pid: u32) {
 
     let _ = client.clear_activity();
     let _ = client.close();
-    println!("[UDB-RPC] Discord RPC disconnected.");
+    log!("[UDB-RPC] Discord RPC disconnected.");
 }
 
 // -- detect window title by pid --
