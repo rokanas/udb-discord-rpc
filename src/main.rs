@@ -204,12 +204,11 @@ unsafe fn find_window_title_by_pid(target_pid: u32) -> String {
 // -- parse title --
 
 /* title format (as of udb v3.0.0.4305)
-    "doomwad.wad (MAP01: Mapname) - Ultimate Doom Builder R4305 (64-bit)"  -> map + file open
-    "doomwad.wad - Ultimate Doom Builder R4305 (64-bit)"                   -> file open, no map
+    "doomwad.wad (MAP01: mapname) - Ultimate Doom Builder R4305 (64-bit)"  -> file + map open
     "Ultimate Doom Builder R4305 (64-bit)"                                 -> startup / no file
 
    discord output:
-    details -> "Editing MAP01: Mapname"
+    details -> "Editing MAP01: mapname"
     state   -> "doomwad.wad"
 */
 fn parse_title(title: &str) -> (String, String) {
@@ -235,11 +234,11 @@ fn parse_title(title: &str) -> (String, String) {
     // everything before it is the filename
     // everything after is the mapname
     if let Some(paren_pos) = stripped.find(" (") {
-        let file_name = stripped[..paren_pos].trim().trim_end_matches('*').trim();
+        let file_name = stripped[..paren_pos].trim();
         let map_name = stripped[paren_pos..].trim().trim_start_matches('(').trim_end_matches(')');
         (format!("Editing {}", map_name), file_name.to_string())
     } else {
-        // no '(' found indicates wad file is open but no map loaded)
+        // no '(' found, return whatever is there
         let file_name = stripped.trim_end_matches('*').trim();
         (format!("Editing {}", file_name), String::new())
     }
