@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 discord-rich-presence = "0.2"
 sysinfo = "0.30"
+winres = "0.1"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winuser", "minwindef", "windef"] }
