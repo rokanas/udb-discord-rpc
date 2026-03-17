@@ -1,5 +1,5 @@
 /* 
-produces a proxy launcher for udb (to be run from the same directory as original udb exe) that:
+produces proxy launcher for udb (to be run from the same directory as original udb exe) that:
   1 - launches original udb executable
   2 - monitors window title for current map/file names
   3 - updates discord rpc
@@ -15,21 +15,13 @@ use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 
 // -- configuration --
 
-// discord app id
 const DISCORD_APP_ID: &str = "placeholder";
-
-/// udb executable to launch
 const UDB_EXE_ORIGINAL: &str = "Builder.exe";
-
-/// rate of polling (ms) window title for changes.
 const POLL_RATE_MS: u64 = 2000;
 
 // -- entry point --
 
 fn main() {
-    //dotenvy::dotenv().expect(".env file not found");
-
-    // pass through any command-line args to udb
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     println!("[UDB-RPC] Launching {}...", UDB_EXE_ORIGINAL);
@@ -44,23 +36,18 @@ fn main() {
         }
     };
 
-    // get the pid of the udb process we just launched
     let udb_pid = udb_process.id();
 
-    // signal flag — set to false when udb exits so rpc thread can stop
     let running = Arc::new(AtomicBool::new(true));
     let running_rpc = Arc::clone(&running);
 
-    // spawn discord rpc updater on background thread
     let rpc_thread = std::thread::spawn(move || {
         run_rpc_loop(running_rpc, udb_pid);
     });
 
-    // wait for udb to exit
     let _ = udb_process.wait();
     println!("[UDB-RPC] UDB closed. Cleaning up...");
 
-    // signal rpc thread to stop and wait for it
     running.store(false, Ordering::Relaxed);
     let _ = rpc_thread.join();
 
@@ -75,11 +62,9 @@ fn launch_udb(extra_args: &[String]) -> std::io::Result<Child> {
 
 // -- discord rpc loop --
 
-// -- discord rpc loop --
- 
 fn run_rpc_loop(running: Arc<AtomicBool>, udb_pid: u32) {
     std::thread::sleep(Duration::from_secs(2));
- 
+
     let mut client = match DiscordIpcClient::new(DISCORD_APP_ID) {
         Ok(c) => c,
         Err(e) => {
@@ -87,38 +72,37 @@ fn run_rpc_loop(running: Arc<AtomicBool>, udb_pid: u32) {
             return;
         }
     };
- 
+
     if let Err(e) = client.connect() {
         eprintln!("[UDB-RPC] Could not connect to Discord (is it running?): {}", e);
         return;
     }
- 
+
     println!("[UDB-RPC] Connected to Discord.");
- 
+
     let start_timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
- 
+
     let mut last_state = String::new();
     let mut sys = System::new_with_specifics(
         RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
     );
- 
+
     while running.load(Ordering::Relaxed) {
         sys.refresh_processes_specifics(ProcessRefreshKind::everything());
- 
+
         let title = get_udb_window_title(udb_pid);
         println!("[UDB-RPC] Raw title: '{}'", title);
         let (details, state) = parse_title(&title);
- 
+
         let new_state = format!("{}|{}", details, state);
         if new_state != last_state {
             last_state = new_state;
- 
-            let activity = activity::Activity::new()
+
+            let mut act = activity::Activity::new()
                 .details(&details)
-                .state(&state)
                 .timestamps(activity::Timestamps::new().start(start_timestamp))
                 .assets(
                     activity::Assets::new()
@@ -127,31 +111,35 @@ fn run_rpc_loop(running: Arc<AtomicBool>, udb_pid: u32) {
                         .small_image("doom_icon")
                         .small_text("Mapping"),
                 );
- 
-            if let Err(e) = client.set_activity(activity) {
+
+            if !state.is_empty() {
+                act = act.state(&state);
+            }
+
+            if let Err(e) = client.set_activity(act) {
                 eprintln!("[UDB-RPC] Failed to set activity: {}", e);
                 let _ = client.reconnect();
             } else {
-                println!("[UDB-RPC] Updated presence → {} | {}", details, state);
+                println!("[UDB-RPC] Updated presence -> {} | {}", details, state);
             }
         }
- 
+
         std::thread::sleep(Duration::from_millis(POLL_RATE_MS));
     }
- 
+
     let _ = client.clear_activity();
     let _ = client.close();
     println!("[UDB-RPC] Discord RPC disconnected.");
 }
 
 // -- detect window title by pid --
- 
+
 fn get_udb_window_title(udb_pid: u32) -> String {
     #[cfg(windows)]
     {
         return unsafe { find_window_title_by_pid(udb_pid) };
     }
- 
+
     #[cfg(not(windows))]
     {
         let _ = udb_pid;
@@ -167,28 +155,26 @@ unsafe fn find_window_title_by_pid(target_pid: u32) -> String {
     use winapi::shared::minwindef::{BOOL, DWORD, LPARAM};
     use winapi::shared::windef::HWND;
     use winapi::um::winuser::{EnumWindows, GetWindowTextW, GetWindowThreadProcessId};
- 
+
     static RESULT: std::sync::OnceLock<Mutex<Option<String>>> = std::sync::OnceLock::new();
     let mutex = RESULT.get_or_init(|| Mutex::new(None));
     {
         let mut guard = mutex.lock().unwrap();
         *guard = None;
     }
- 
+
     unsafe extern "system" fn enum_callback(hwnd: HWND, target_pid: LPARAM) -> BOOL {
         use std::ffi::OsString;
         use std::os::windows::ffi::OsStringExt;
         use winapi::shared::minwindef::DWORD;
         use winapi::um::winuser::{GetWindowTextW, GetWindowThreadProcessId};
- 
-        // check window belongs to our target pid
+
         let mut window_pid: DWORD = 0;
         GetWindowThreadProcessId(hwnd, &mut window_pid);
         if window_pid != target_pid as DWORD {
-            return 1; // wrong process, skip
+            return 1;
         }
- 
-        // read title
+
         let mut buf = vec![0u16; 512];
         let len = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
         if len > 0 {
@@ -199,8 +185,6 @@ unsafe fn find_window_title_by_pid(target_pid: u32) -> String {
                     if let Ok(mut guard) = mutex.lock() {
                         let is_udb_title = title.contains(" - Ultimate Doom Builder");
                         let current_is_udb = guard.as_ref().map_or(false, |t| t.contains(" - Ultimate Doom Builder"));
-                        // prefer titles containing UDB signature string;
-                        // only fall back to other titles if nothing yet found
                         if is_udb_title || (!current_is_udb && guard.is_none()) {
                             *guard = Some(title);
                         }
@@ -208,11 +192,11 @@ unsafe fn find_window_title_by_pid(target_pid: u32) -> String {
                 }
             }
         }
-        1 // keep enumerating — udb may have multiple windows under same pid
+        1
     }
- 
+
     EnumWindows(Some(enum_callback), target_pid as LPARAM);
- 
+
     let guard = mutex.lock().unwrap();
     guard.clone().unwrap_or_default()
 }
@@ -220,65 +204,43 @@ unsafe fn find_window_title_by_pid(target_pid: u32) -> String {
 // -- parse title --
 
 /* title format (as of udb v3.0.0.4305)
-    "doomwad.wad (MAP01: Mapname) - Ultimate Doom Builder"  -> map + file open
-    "doomwad.wad - Ultimate Doom Builder"                   -> file open, no map
-    "Ultimate Doom Builder"                                 -> startup / no file
+    "doomwad.wad (MAP01: Mapname) - Ultimate Doom Builder R4305 (64-bit)"  -> map + file open
+    "doomwad.wad - Ultimate Doom Builder R4305 (64-bit)"                   -> file open, no map
+    "Ultimate Doom Builder R4305 (64-bit)"                                 -> startup / no file
+
+   discord output:
+    details -> "Editing MAP01: Mapname"
+    state   -> "doomwad.wad"
 */
 fn parse_title(title: &str) -> (String, String) {
+    // if no title found or not a udb window (e.g. .NETBroadcastEventWIndow)
     if title.is_empty() || !title.contains("Ultimate Doom Builder") {
-        return (
-            "Ultimate Doom Builder".to_string(),
-            "Idle".to_string(),
-        );
+        return ("Idle".to_string(), String::new());
     }
 
-    // strip trailing " - Ultimate Doom Builder" suffix
-    let stripped = if let Some(pos) = title.rfind(" - Ultimate Doom Builder") {
+    // collect title preceding '- udb' (if present)
+    let stripped = if let Some(pos) = title.find(" - Ultimate Doom Builder") {
         title[..pos].trim()
     } else {
-        // bare "Ultimate Doom Builder"
-        return (
-            "Ultimate Doom Builder".to_string(),
-            "Starting up...".to_string(),
-        );
+        // if no '-' seperator, just udb title
+        return ("Starting up...".to_string(), String::new());
     };
 
+    // defensive check in case trim left an empty string
     if stripped.is_empty() {
-        return (
-            "Ultimate Doom Builder".to_string(),
-            "Starting up...".to_string(),
-        );
+        return ("Starting up...".to_string(), String::new());
     }
 
-    // split on first " - " to separate map name from filename
-    let parts: Vec<&str> = stripped.splitn(2, " - ").collect();
-
-    match parts.as_slice() {
-        [map, file] => {
-            let map_name = map.trim();
-            let unsaved = file.trim().ends_with('*');
-            let file_name = file.trim().trim_end_matches('*').trim();
-            let details = format!("Editing {}", map_name);
-            let state = if unsaved {
-                format!("{} (unsaved changes)", file_name)
-            } else {
-                format!("in {}", file_name)
-            };
-            (details, state)
-        }
-        [file] => {
-            let unsaved = file.trim().ends_with('*');
-            let file_name = file.trim().trim_end_matches('*').trim();
-            let state = if unsaved {
-                format!("{} (unsaved changes)", file_name)
-            } else {
-                format!("Editing {}", file_name)
-            };
-            ("Ultimate Doom Builder".to_string(), state)
-        }
-        _ => (
-            "Ultimate Doom Builder".to_string(),
-            stripped.to_string(),
-        ),
+    // if a '(' is found, there is full title, so split on the '('
+    // everything before it is the filename
+    // everything after is the mapname
+    if let Some(paren_pos) = stripped.find(" (") {
+        let file_name = stripped[..paren_pos].trim().trim_end_matches('*').trim();
+        let map_name = stripped[paren_pos..].trim().trim_start_matches('(').trim_end_matches(')');
+        (format!("Editing {}", map_name), file_name.to_string())
+    } else {
+        // no '(' found indicates wad file is open but no map loaded)
+        let file_name = stripped.trim_end_matches('*').trim();
+        (format!("Editing {}", file_name), String::new())
     }
 }
