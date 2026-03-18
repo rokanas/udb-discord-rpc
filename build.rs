@@ -26,11 +26,10 @@ fn main() {
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let res_path = format!("{}/icon.res", out_dir);
 
-    let windres_result = std::process::Command::new(windres)
+    std::process::Command::new(windres)
         .args(["assets/icon.rc", "-O", "coff", "-o", &res_path])
-        .status();
+        .status()
+        .unwrap();
 
-    if windres_result.is_ok() {
-        println!("cargo:rustc-link-arg={}", res_path);
-    }
+    println!("cargo:rustc-link-arg={}", res_path);
 }
