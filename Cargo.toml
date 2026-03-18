@@ -1,8 +1,9 @@
 [package]
 name = "udb-discord-rpc"
-version = "0.1.0"
-edition = "2024"
+version = "1.0.0"
+edition = "2026"
 description = "Discord RPC proxy launcher for Ultimate Doom Builder"
+license = "GPL-3.0"
 
 [[bin]]
 name = "UltimateDoomBuilder-RPC"
