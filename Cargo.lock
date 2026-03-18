@@ -221,7 +221,7 @@ dependencies = [
 
 [[package]]
 name = "udb-discord-rpc"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "discord-rich-presence",
  "sysinfo",
