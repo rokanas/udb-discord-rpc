@@ -139,7 +139,7 @@ fn run_rpc_loop(running: Arc<AtomicBool>, udb_pid: u32) {
         log!("[UDB-RPC] Raw title: '{}'", title);
         let (details, state) = parse_title(&title);
 
-        let new_state = format!("{}|{}", details, state);
+        let new_state = format!("{} in {}", details, state);
         if new_state != last_state {
             last_state = new_state;
 
@@ -149,9 +149,7 @@ fn run_rpc_loop(running: Arc<AtomicBool>, udb_pid: u32) {
                 .assets(
                     activity::Assets::new()
                         .large_image("udb_logo")
-                        .large_text("Ultimate Doom Builder")
-                        .small_image("doom_icon")
-                        .small_text("Mapping"),
+                        .large_text(&details)
                 );
 
             if !state.is_empty() {
