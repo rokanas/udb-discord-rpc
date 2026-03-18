@@ -5,7 +5,7 @@ edition = "2024"
 description = "Discord RPC proxy launcher for Ultimate Doom Builder"
 
 [[bin]]
-name = "UltimateDoomBuilder"
+name = "UltimateDoomBuilder-RPC"
 path = "src/main.rs"
 
 [dependencies]
