@@ -21,13 +21,13 @@ fn main() {
         }
     }
 
-    // use windres to embed icon in exe on windows
-    // place icon.res in cargo temp build directory instead of source foolder
+    // use windres to embed metadata and icon in exe on windows
+    // place .res in cargo temp build directory instead of source folder
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let res_path = format!("{}/icon.res", out_dir);
 
     std::process::Command::new(windres)
-        .args(["assets/icon.rc", "-O", "coff", "-o", &res_path])
+        .args(["assets/resources.rc", "-O", "coff", "-o", &res_path])
         .status()
         .unwrap();
 

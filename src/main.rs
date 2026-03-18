@@ -47,10 +47,11 @@ fn main() {
 
     let mut udb_process = match launch_udb(&args) {
         Ok(child) => child,
-        Err(e) => {
-            log_err!("[UDB-RPC] Failed to launch UDB: {}", e);
-            log_err!("[UDB-RPC] Make sure '{}' is in the same folder.", UDB_EXE_ORIGINAL);
-            std::thread::sleep(Duration::from_secs(5));
+        Err(_) => {
+            show_error_dialog(&format!(
+                "Failed to launch UDB.\n\nMake sure to launch UltimateDoomBuilder-RPC.exe from the same folder as {}.",
+                UDB_EXE_ORIGINAL
+            ));
             return;
         }
     };
@@ -77,6 +78,28 @@ fn main() {
 
 fn launch_udb(extra_args: &[String]) -> std::io::Result<Child> {
     Command::new(UDB_EXE_ORIGINAL).args(extra_args).spawn()
+}
+
+// -- error dialog --
+
+#[cfg(windows)]
+fn show_error_dialog(message: &str) {
+    use std::ffi::CString;
+    let message = CString::new(message).unwrap();
+    let title = CString::new("UltimateDoomBuilder-RPC").unwrap();
+    unsafe {
+        winapi::um::winuser::MessageBoxA(
+            std::ptr::null_mut(),
+            message.as_ptr(),
+            title.as_ptr(),
+            winapi::um::winuser::MB_OK | winapi::um::winuser::MB_ICONERROR,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn show_error_dialog(message: &str) {
+    log_err!("{}", message);
 }
 
 // -- discord rpc loop --
